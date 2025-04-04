@@ -81,6 +81,7 @@ void add_player_score(GameState* game, const char* name, int difficulty, int sco
 // Utility functions
 void add_default_questions(GameState* game);
 void shuffle_questions(Question* questions, int count);
+int count_questions_by_difficulty(GameState* game, int difficulty);
 
 int main(int argc, char* argv[]) {
     SDL_Window* window = NULL;
@@ -181,7 +182,7 @@ bool init_sdl(SDL_Window** window, SDL_Renderer** renderer, TTF_Font** font) {
         return false;
     }
     
-    *renderer = SDL_CreateRenderer(*window, -1, SDL_RENDERER_ACCELERATED);
+    *renderer = SDL_CreateRenderer(*window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (*renderer == NULL) {
         printf("Renderer could not be created! SDL_Error: %s\n", SDL_GetError());
         return false;
@@ -191,8 +192,8 @@ bool init_sdl(SDL_Window** window, SDL_Renderer** renderer, TTF_Font** font) {
         printf("TTF could not initialize! TTF_Error: %s\n", TTF_GetError());
         return false;
     }
-    
-    // Try to load a common font - adjust path as needed for your system
+
+    // Try to load a common font
     *font = TTF_OpenFont("arial.ttf", 24);
     if (*font == NULL) {
         *font = TTF_OpenFont("dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf", 24);
@@ -201,7 +202,7 @@ bool init_sdl(SDL_Window** window, SDL_Renderer** renderer, TTF_Font** font) {
             return false;
         }
     }
-    
+
     return true;
 }
 
@@ -214,15 +215,17 @@ void close_sdl(SDL_Window* window, SDL_Renderer* renderer, TTF_Font* font) {
 }
 
 void render_text(SDL_Renderer* renderer, TTF_Font* font, const char* text, int x, int y, SDL_Color color) {
+    if (text == NULL || strlen(text) == 0) {
+        return;
+    }
+    
     SDL_Surface* surface = TTF_RenderText_Solid(font, text, color);
     if (surface == NULL) {
-        printf("Unable to render text surface! SDL_ttf Error: %s\n", TTF_GetError());
         return;
     }
     
     SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
     if (texture == NULL) {
-        printf("Unable to create texture from rendered text! SDL Error: %s\n", SDL_GetError());
         SDL_FreeSurface(surface);
         return;
     }
@@ -245,9 +248,12 @@ void render_button(SDL_Renderer* renderer, TTF_Font* font, const char* text, int
     SDL_RenderDrawRect(renderer, &button_rect);
     
     // Render button text (centered)
-    int text_width, text_height;
-    TTF_SizeText(font, text, &text_width, &text_height);
-    render_text(renderer, font, text, x + (w - text_width)/2, y + (h - text_height)/2, text_color);
+    if (text && strlen(text) > 0) {
+        int text_width, text_height;
+        if (TTF_SizeText(font, text, &text_width, &text_height) == 0) {
+            render_text(renderer, font, text, x + (w - text_width)/2, y + (h - text_height)/2, text_color);
+        }
+    }
 }
 
 bool is_button_clicked(int mouse_x, int mouse_y, int btn_x, int btn_y, int btn_w, int btn_h) {
@@ -314,12 +320,22 @@ void render_timer(SDL_Renderer* renderer, TTF_Font* font, int time_remaining, in
     SDL_Color RED = {255, 0, 0, 255};
     
     char timer_text[20];
-    sprintf(timer_text, "Time: %d", time_remaining);
+    snprintf(timer_text, sizeof(timer_text), "Time: %d", time_remaining);
     
     // Use red color when time is running low
     SDL_Color color = (time_remaining <= 5) ? RED : WHITE;
     
     render_text(renderer, font, timer_text, x, y, color);
+}
+
+int count_questions_by_difficulty(GameState* game, int difficulty) {
+    int count = 0;
+    for (int i = 0; i < game->total_questions; i++) {
+        if (game->questions[i].difficulty == difficulty) {
+            count++;
+        }
+    }
+    return count;
 }
 
 void master_login(SDL_Renderer* renderer, TTF_Font* font, GameState* game) {
@@ -407,6 +423,7 @@ void student_login(SDL_Renderer* renderer, TTF_Font* font, GameState* game) {
     SDL_Color WHITE = {255, 255, 255, 255};
     SDL_Color BLUE = {0, 0, 128, 255};
     SDL_Color LIGHT_BLUE = {100, 149, 237, 255};
+    SDL_Color RED = {255, 0, 0, 255};
     
     // Get student name
     get_text_input(renderer, font, game->current_player, MAX_NAME_LENGTH, "Enter your name:");
@@ -423,9 +440,24 @@ void student_login(SDL_Renderer* renderer, TTF_Font* font, GameState* game) {
         render_text(renderer, font, welcome, SCREEN_WIDTH/2 - 100, 100, WHITE);
         
         // Difficulty Selection Buttons
-        render_button(renderer, font, "Easy Quiz", SCREEN_WIDTH/2 - 100, 200, 200, 50, LIGHT_BLUE, WHITE);
-        render_button(renderer, font, "Medium Quiz", SCREEN_WIDTH/2 - 100, 300, 200, 50, LIGHT_BLUE, WHITE);
-        render_button(renderer, font, "Hard Quiz", SCREEN_WIDTH/2 - 100, 400, 200, 50, LIGHT_BLUE, WHITE);
+        int easy_count = count_questions_by_difficulty(game, DIFFICULTY_EASY);
+        int medium_count = count_questions_by_difficulty(game, DIFFICULTY_MEDIUM);
+        int hard_count = count_questions_by_difficulty(game, DIFFICULTY_HARD);
+        
+        render_button(renderer, font, "Easy Quiz", SCREEN_WIDTH/2 - 100, 200, 200, 50, 
+                     easy_count > 0 ? LIGHT_BLUE : RED, WHITE);
+        render_text(renderer, font, easy_count > 0 ? "" : "No questions available", 
+                   SCREEN_WIDTH/2 + 120, 215, WHITE);
+        
+        render_button(renderer, font, "Medium Quiz", SCREEN_WIDTH/2 - 100, 300, 200, 50, 
+                     medium_count > 0 ? LIGHT_BLUE : RED, WHITE);
+        render_text(renderer, font, medium_count > 0 ? "" : "No questions available", 
+                   SCREEN_WIDTH/2 + 120, 315, WHITE);
+        
+        render_button(renderer, font, "Hard Quiz", SCREEN_WIDTH/2 - 100, 400, 200, 50, 
+                     hard_count > 0 ? LIGHT_BLUE : RED, WHITE);
+        render_text(renderer, font, hard_count > 0 ? "" : "No questions available", 
+                   SCREEN_WIDTH/2 + 120, 415, WHITE);
         
         // View History Button
         render_button(renderer, font, "View History", SCREEN_WIDTH/2 - 100, 500, 200, 50, LIGHT_BLUE, WHITE);
@@ -446,24 +478,24 @@ void student_login(SDL_Renderer* renderer, TTF_Font* font, GameState* game) {
                 SDL_GetMouseState(&mouse_x, &mouse_y);
                 
                 // Easy Quiz
-                if (is_button_clicked(mouse_x, mouse_y, SCREEN_WIDTH/2 - 100, 200, 200, 50)) {
+                if (is_button_clicked(mouse_x, mouse_y, SCREEN_WIDTH/2 - 100, 200, 200, 50) && 
+                    count_questions_by_difficulty(game, DIFFICULTY_EASY) > 0) {
                     start_quiz(renderer, font, game, DIFFICULTY_EASY);
                     show_results(renderer, font, game, DIFFICULTY_EASY);
-                    show_player_history(renderer, font, game);
                 }
                 
                 // Medium Quiz
-                if (is_button_clicked(mouse_x, mouse_y, SCREEN_WIDTH/2 - 100, 300, 200, 50)) {
+                if (is_button_clicked(mouse_x, mouse_y, SCREEN_WIDTH/2 - 100, 300, 200, 50) && 
+                    count_questions_by_difficulty(game, DIFFICULTY_MEDIUM) > 0) {
                     start_quiz(renderer, font, game, DIFFICULTY_MEDIUM);
                     show_results(renderer, font, game, DIFFICULTY_MEDIUM);
-                    show_player_history(renderer, font, game);
                 }
                 
                 // Hard Quiz
-                if (is_button_clicked(mouse_x, mouse_y, SCREEN_WIDTH/2 - 100, 400, 200, 50)) {
+                if (is_button_clicked(mouse_x, mouse_y, SCREEN_WIDTH/2 - 100, 400, 200, 50) && 
+                    count_questions_by_difficulty(game, DIFFICULTY_HARD) > 0) {
                     start_quiz(renderer, font, game, DIFFICULTY_HARD);
                     show_results(renderer, font, game, DIFFICULTY_HARD);
-                    show_player_history(renderer, font, game);
                 }
                 
                 // View History Button
@@ -496,25 +528,15 @@ void start_quiz(SDL_Renderer* renderer, TTF_Font* font, GameState* game, int dif
         }
     }
     
-    if (count < QUESTIONS_PER_LEVEL) {
-        SDL_SetRenderDrawColor(renderer, BLUE.r, BLUE.g, BLUE.b, BLUE.a);
-        SDL_RenderClear(renderer);
-        char message[100];
-        sprintf(message, "Not enough questions (%d/%d) for this level!", count, QUESTIONS_PER_LEVEL);
-        render_text(renderer, font, message, SCREEN_WIDTH/2 - 250, 250, RED);
-        SDL_RenderPresent(renderer);
-        SDL_Delay(2000);
-        return;
-    }
-    
     // Shuffle questions
     shuffle_questions(difficulty_questions, count);
     
-    // Take only the first QUESTIONS_PER_LEVEL questions
+    // Determine how many questions to ask (minimum of QUESTIONS_PER_LEVEL or available questions)
+    int questions_to_ask = (count < QUESTIONS_PER_LEVEL) ? count : QUESTIONS_PER_LEVEL;
     int score = 0;
     
     // Start quiz
-    for (int q = 0; q < QUESTIONS_PER_LEVEL && q < count; q++) {
+    for (int q = 0; q < questions_to_ask; q++) {
         Question current_question = difficulty_questions[q];
         bool answered = false;
         int selected_option = -1;
@@ -534,7 +556,7 @@ void start_quiz(SDL_Renderer* renderer, TTF_Font* font, GameState* game, int dif
             
             // Display question number
             char question_num[50];
-            sprintf(question_num, "Question %d/%d", q + 1, QUESTIONS_PER_LEVEL);
+            sprintf(question_num, "Question %d/%d", q + 1, questions_to_ask);
             render_text(renderer, font, question_num, 50, 50, WHITE);
             
             // Display timer
@@ -649,7 +671,9 @@ void show_results(SDL_Renderer* renderer, TTF_Font* font, GameState* game, int d
                game->current_score[difficulty] >= 0 ? GREEN : RED);
     
     // Percentage
-    float percentage = (float)game->current_score[difficulty] / (QUESTIONS_PER_LEVEL * 5) * 100;
+    int questions_asked = count_questions_by_difficulty(game, difficulty) < QUESTIONS_PER_LEVEL ? 
+                         count_questions_by_difficulty(game, difficulty) : QUESTIONS_PER_LEVEL;
+    float percentage = (float)game->current_score[difficulty] / (questions_asked * 5) * 100;
     char percentage_text[50];
     sprintf(percentage_text, "Percentage: %.1f%%", percentage);
     render_text(renderer, font, percentage_text, SCREEN_WIDTH/2 - 100, 250, WHITE);
@@ -1259,7 +1283,7 @@ void load_players(GameState* game) {
 }
 
 void add_default_questions(GameState* game) {
-    // Easy Questions
+    // Easy Questions (11 total)
     strcpy(game->questions[game->total_questions].question, "What is 2 + 2?");
     strcpy(game->questions[game->total_questions].options[0], "3");
     strcpy(game->questions[game->total_questions].options[1], "4");
@@ -1278,7 +1302,6 @@ void add_default_questions(GameState* game) {
     game->questions[game->total_questions].difficulty = DIFFICULTY_EASY;
     game->total_questions++;
 
-    // Add more easy questions to reach at least 10
     strcpy(game->questions[game->total_questions].question, "Which planet is closest to the sun?");
     strcpy(game->questions[game->total_questions].options[0], "Venus");
     strcpy(game->questions[game->total_questions].options[1], "Mars");
@@ -1306,7 +1329,61 @@ void add_default_questions(GameState* game) {
     game->questions[game->total_questions].difficulty = DIFFICULTY_EASY;
     game->total_questions++;
 
-    // Medium Questions
+    strcpy(game->questions[game->total_questions].question, "What color is a banana?");
+    strcpy(game->questions[game->total_questions].options[0], "Red");
+    strcpy(game->questions[game->total_questions].options[1], "Green");
+    strcpy(game->questions[game->total_questions].options[2], "Yellow");
+    strcpy(game->questions[game->total_questions].options[3], "Blue");
+    game->questions[game->total_questions].correct_option = 2;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_EASY;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "How many days are in a week?");
+    strcpy(game->questions[game->total_questions].options[0], "5");
+    strcpy(game->questions[game->total_questions].options[1], "6");
+    strcpy(game->questions[game->total_questions].options[2], "7");
+    strcpy(game->questions[game->total_questions].options[3], "8");
+    game->questions[game->total_questions].correct_option = 2;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_EASY;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "Which season comes after winter?");
+    strcpy(game->questions[game->total_questions].options[0], "Summer");
+    strcpy(game->questions[game->total_questions].options[1], "Spring");
+    strcpy(game->questions[game->total_questions].options[2], "Fall");
+    strcpy(game->questions[game->total_questions].options[3], "Autumn");
+    game->questions[game->total_questions].correct_option = 1;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_EASY;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "What animal says 'moo'?");
+    strcpy(game->questions[game->total_questions].options[0], "Sheep");
+    strcpy(game->questions[game->total_questions].options[1], "Cow");
+    strcpy(game->questions[game->total_questions].options[2], "Pig");
+    strcpy(game->questions[game->total_questions].options[3], "Horse");
+    game->questions[game->total_questions].correct_option = 1;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_EASY;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "What is 10 divided by 2?");
+    strcpy(game->questions[game->total_questions].options[0], "5");
+    strcpy(game->questions[game->total_questions].options[1], "8");
+    strcpy(game->questions[game->total_questions].options[2], "12");
+    strcpy(game->questions[game->total_questions].options[3], "20");
+    game->questions[game->total_questions].correct_option = 0;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_EASY;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "What do bees make?");
+    strcpy(game->questions[game->total_questions].options[0], "Silk");
+    strcpy(game->questions[game->total_questions].options[1], "Milk");
+    strcpy(game->questions[game->total_questions].options[2], "Honey");
+    strcpy(game->questions[game->total_questions].options[3], "Juice");
+    game->questions[game->total_questions].correct_option = 2;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_EASY;
+    game->total_questions++;
+
+    // Medium Questions (11 total)
     strcpy(game->questions[game->total_questions].question, "What is the square root of 64?");
     strcpy(game->questions[game->total_questions].options[0], "4");
     strcpy(game->questions[game->total_questions].options[1], "6");
@@ -1325,7 +1402,6 @@ void add_default_questions(GameState* game) {
     game->questions[game->total_questions].difficulty = DIFFICULTY_MEDIUM;
     game->total_questions++;
 
-    // Add more medium questions to reach at least 10
     strcpy(game->questions[game->total_questions].question, "What is the chemical symbol for water?");
     strcpy(game->questions[game->total_questions].options[0], "H2O");
     strcpy(game->questions[game->total_questions].options[1], "CO2");
@@ -1353,7 +1429,61 @@ void add_default_questions(GameState* game) {
     game->questions[game->total_questions].difficulty = DIFFICULTY_MEDIUM;
     game->total_questions++;
 
-    // Hard Questions
+    strcpy(game->questions[game->total_questions].question, "What is the name of the longest river in Africa?");
+    strcpy(game->questions[game->total_questions].options[0], "Amazon");
+    strcpy(game->questions[game->total_questions].options[1], "Nile");
+    strcpy(game->questions[game->total_questions].options[2], "Mississippi");
+    strcpy(game->questions[game->total_questions].options[3], "Yangtze");
+    game->questions[game->total_questions].correct_option = 1;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_MEDIUM;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "What is the boiling point of water in Celsius?");
+    strcpy(game->questions[game->total_questions].options[0], "90°C");
+    strcpy(game->questions[game->total_questions].options[1], "100°C");
+    strcpy(game->questions[game->total_questions].options[2], "110°C");
+    strcpy(game->questions[game->total_questions].options[3], "212°C");
+    game->questions[game->total_questions].correct_option = 1;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_MEDIUM;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "Which musical instrument has 88 keys?");
+    strcpy(game->questions[game->total_questions].options[0], "Guitar");
+    strcpy(game->questions[game->total_questions].options[1], "Violin");
+    strcpy(game->questions[game->total_questions].options[2], "Piano");
+    strcpy(game->questions[game->total_questions].options[3], "Flute");
+    game->questions[game->total_questions].correct_option = 2;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_MEDIUM;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "Which bone is the longest in the human body?");
+    strcpy(game->questions[game->total_questions].options[0], "Femur");
+    strcpy(game->questions[game->total_questions].options[1], "Spine");
+    strcpy(game->questions[game->total_questions].options[2], "Tibia");
+    strcpy(game->questions[game->total_questions].options[3], "Humerus");
+    game->questions[game->total_questions].correct_option = 0;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_MEDIUM;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "How many sides does a hexagon have?");
+    strcpy(game->questions[game->total_questions].options[0], "5");
+    strcpy(game->questions[game->total_questions].options[1], "6");
+    strcpy(game->questions[game->total_questions].options[2], "7");
+    strcpy(game->questions[game->total_questions].options[3], "8");
+    game->questions[game->total_questions].correct_option = 1;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_MEDIUM;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "What gas do plants absorb from the atmosphere?");
+    strcpy(game->questions[game->total_questions].options[0], "Oxygen");
+    strcpy(game->questions[game->total_questions].options[1], "Nitrogen");
+    strcpy(game->questions[game->total_questions].options[2], "Carbon Dioxide");
+    strcpy(game->questions[game->total_questions].options[3], "Hydrogen");
+    game->questions[game->total_questions].correct_option = 2;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_MEDIUM;
+    game->total_questions++;
+
+    // Hard Questions (11 total)
     strcpy(game->questions[game->total_questions].question, "What is the chemical symbol for Gold?");
     strcpy(game->questions[game->total_questions].options[0], "Go");
     strcpy(game->questions[game->total_questions].options[1], "Gd");
@@ -1372,7 +1502,6 @@ void add_default_questions(GameState* game) {
     game->questions[game->total_questions].difficulty = DIFFICULTY_HARD;
     game->total_questions++;
 
-    // Add more hard questions to reach at least 10
     strcpy(game->questions[game->total_questions].question, "What is the largest planet in our solar system?");
     strcpy(game->questions[game->total_questions].options[0], "Earth");
     strcpy(game->questions[game->total_questions].options[1], "Saturn");
@@ -1396,6 +1525,60 @@ void add_default_questions(GameState* game) {
     strcpy(game->questions[game->total_questions].options[1], "1945");
     strcpy(game->questions[game->total_questions].options[2], "1947");
     strcpy(game->questions[game->total_questions].options[3], "1950");
+    game->questions[game->total_questions].correct_option = 1;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_HARD;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "What is the smallest bone in the human body?");
+    strcpy(game->questions[game->total_questions].options[0], "Stapes");
+    strcpy(game->questions[game->total_questions].options[1], "Femur");
+    strcpy(game->questions[game->total_questions].options[2], "Radius");
+    strcpy(game->questions[game->total_questions].options[3], "Patella");
+    game->questions[game->total_questions].correct_option = 0;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_HARD;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "Who was the first woman to win a Nobel Prize?");
+    strcpy(game->questions[game->total_questions].options[0], "Marie Curie");
+    strcpy(game->questions[game->total_questions].options[1], "Rosalind Franklin");
+    strcpy(game->questions[game->total_questions].options[2], "Ada Lovelace");
+    strcpy(game->questions[game->total_questions].options[3], "Dorothy Hodgkin");
+    game->questions[game->total_questions].correct_option = 0;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_HARD;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "What is the capital of Australia?");
+    strcpy(game->questions[game->total_questions].options[0], "Sydney");
+    strcpy(game->questions[game->total_questions].options[1], "Melbourne");
+    strcpy(game->questions[game->total_questions].options[2], "Canberra");
+    strcpy(game->questions[game->total_questions].options[3], "Perth");
+    game->questions[game->total_questions].correct_option = 2;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_HARD;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "In what year was the first iPhone released?");
+    strcpy(game->questions[game->total_questions].options[0], "2005");
+    strcpy(game->questions[game->total_questions].options[1], "2007");
+    strcpy(game->questions[game->total_questions].options[2], "2009");
+    strcpy(game->questions[game->total_questions].options[3], "2010");
+    game->questions[game->total_questions].correct_option = 1;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_HARD;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "What is the speed of light in vacuum?");
+    strcpy(game->questions[game->total_questions].options[0], "299,792 km/s");
+    strcpy(game->questions[game->total_questions].options[1], "300,000 km/s");
+    strcpy(game->questions[game->total_questions].options[2], "310,000 km/s");
+    strcpy(game->questions[game->total_questions].options[3], "250,000 km/s");
+    game->questions[game->total_questions].correct_option = 0;
+    game->questions[game->total_questions].difficulty = DIFFICULTY_HARD;
+    game->total_questions++;
+
+    strcpy(game->questions[game->total_questions].question, "What is the chemical formula for sulfuric acid?");
+    strcpy(game->questions[game->total_questions].options[0], "H2SO3");
+    strcpy(game->questions[game->total_questions].options[1], "H2SO4");
+    strcpy(game->questions[game->total_questions].options[2], "HNO3");
+    strcpy(game->questions[game->total_questions].options[3], "HCl");
     game->questions[game->total_questions].correct_option = 1;
     game->questions[game->total_questions].difficulty = DIFFICULTY_HARD;
     game->total_questions++;
